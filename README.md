@@ -6,11 +6,13 @@ RWKV is an RNN with Transformer-level LLM performance, which can also be directl
 
 So it's combining the best of RNN and transformer - **great performance, fast inference, saves VRAM, fast training, "infinite" ctx_len, and free sentence embedding** (using the final hidden state).
 
-HuggingFace Gradio demo (14B ctx8192): https://huggingface.co/spaces/BlinkDL/ChatRWKV-gradio
+**Raven 14B** (finetuned on Alpaca+ShareGPT+...) Demo: https://huggingface.co/spaces/BlinkDL/ChatRWKV-gradio
 
-**Raven** (7B finetuned on Alpaca and more) Demo: https://huggingface.co/spaces/BlinkDL/Raven-RWKV-7B
+**Raven 7B** (finetuned on Alpaca+ShareGPT+...) Demo: https://huggingface.co/spaces/BlinkDL/Raven-RWKV-7B
 
 **ChatRWKV:** with "stream" and "split" strategies and INT8. **3G VRAM is enough to run RWKV 14B :)** https://github.com/BlinkDL/ChatRWKV
+
+**Download RWKV-4 0.1/0.4/1.5/3/7/14B weights**: https://huggingface.co/BlinkDL
 
 **RWKV pip package**: https://pypi.org/project/rwkv/
 
@@ -27,18 +29,25 @@ out, state = model.forward([1563], state)           # RNN has state (use deepcop
 out, state = model.forward([310, 247], state)
 print(out.detach().cpu().numpy())                   # same result as above
 ```
+**Cool Community RWKV Projects (check them!)**:
 
-**Download RWKV-4 0.1/0.4/1.5/3/7/14B weights**: https://huggingface.co/BlinkDL
+https://github.com/saharNooby/rwkv.cpp INT4 INT8 FP16 FP32 inference for CPU using [ggml](https://github.com/ggerganov/ggml)
 
-**RWKV introduction, and in 100 lines of numpy**: https://johanwind.github.io/2023/03/23/rwkv_overview.html https://johanwind.github.io/2023/03/23/rwkv_details.html
+https://github.com/harrisonvanderbyl/rwkv-cpp-cuda pure CUDA RWKV (no need for python & pytorch)
 
-A cool paper (Spiking Neural Network) using RWKV: https://github.com/ridgerchu/SpikeGPT
+https://github.com/Blealtan/RWKV-LM-LoRA LoRA fine-tuning
+
+More RWKV projects: https://github.com/search?o=desc&q=rwkv&s=updated&type=Repositories
 
 ## Join Our Discord: https://discord.gg/bDSBUMeFpc (lots of developers)
 
 **Twitter**: https://twitter.com/BlinkDL_AI
 
 **RWKV in 150 lines** (model, inference, text generation): https://github.com/BlinkDL/ChatRWKV/blob/main/RWKV_in_150_lines.py
+
+**RWKV introduction, and in 100 lines of numpy**: https://johanwind.github.io/2023/03/23/rwkv_overview.html https://johanwind.github.io/2023/03/23/rwkv_details.html
+
+A cool paper (Spiking Neural Network) using RWKV: https://github.com/ridgerchu/SpikeGPT
 
 ChatRWKV with RWKV 14B ctx8192:
 
@@ -104,52 +113,6 @@ Here is a great prompt for testing Q&A of LLMs. Works for any model: (found by m
 prompt = f'\nQ & A\n\nQuestion:\n{qq}\n\nDetailed Expert Answer:\n' # let the model generate after this
 ```
 
-**Cool Community RWKV Projects (check them!)**:
-
-https://pypi.org/project/rwkvstic/ a pip package (with 8bit & offload for low VRAM GPUs)
-
-**https://github.com/saharNooby/rwkv.cpp rwkv.cpp for fast CPU reference**
-
-https://github.com/wfox4/WebChatRWKVv2 WebUI
-
-https://github.com/Blealtan/RWKV-LM-LoRA LoRA fine-tuning
-
-https://github.com/harrisonvanderbyl/rwkv_chatbot a chatbot
-
-https://github.com/gururise/rwkv_gradio RWKV Gradio
-
-https://github.com/cryscan/eloise RWKV QQ bot
-
-https://github.com/mrsteyk/RWKV-LM-jax
-
-https://github.com/wozeparrot/tinyrwkv RWKV in tinygrad (nice simple DL framework)
-
-https://github.com/huggingface/transformers/issues/17230 RWKV HF package (WIP)
-
-https://github.com/ArEnSc/Production-RWKV RWKV HF package source
-
-https://github.com/nlpodyssey/verbaflow RWKV in Go
-
-https://github.com/nlpodyssey/rwkv RWKV in Go
-
-https://github.com/mrsteyk/rwkvk-rs RWKV in Rust
-
-https://github.com/josephrocca/rwkv-v4-web RWKV in browser
-
-https://github.com/imxcstar/CSharp-RWKV-V4 RWKV in C#
-
-https://github.com/mrsteyk/RWKV-LM-deepspeed Another training fork
-
-https://github.com/resloved/RWKV-notebooks RWKV colab notebooks
-
-https://colab.research.google.com/github/harrisonvanderbyl/rwkvstic/blob/master/notebooks/chatbot.ipynb RWKV chatbot colab notebook
-
-https://github.com/Pathos14489/RWKVDistributedInference RWKV Distributed Inference
-
-https://github.com/AXKuhta/rwkv-onnx-dml RWKV ONNX
-
-https://github.com/saharNooby/rwkv.cpp FP32, FP16 and quantized INT4 inference for CPU using [ggml](https://github.com/ggerganov/ggml)
-
 ### Inference
 
 **Run RWKV-4 Pile models:** Download models from https://huggingface.co/BlinkDL. Set TOKEN_MODE = 'pile' in run.py and run it. It's fast even on CPU (the default mode).
@@ -163,6 +126,8 @@ RWKV-4 Web Demo: https://josephrocca.github.io/rwkv-v4-web/demo/ (note: only gre
 For the old RWKV-2: see the release here for a 27M params model on enwik8 with 0.72 BPC(dev). Run run.py in https://github.com/BlinkDL/RWKV-LM/tree/main/RWKV-v2-RNN. You can even run it in your browser: https://github.com/BlinkDL/AI-Writer/tree/main/docs/eng https://blinkdl.github.io/AI-Writer/eng/ (this is using tf.js WASM single-thread mode).
 
 ### Training / Fine-tuning
+
+pip install deepspeed==0.7.0 // pip install pytorch-lightning==1.9.2 // torch 1.13.1+cu117
 
 **Training RWKV-4 from scratch:** run train.py, which by default is using the enwik8 dataset (unzip https://data.deepai.org/enwik8.zip).
 
