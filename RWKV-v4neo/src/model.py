@@ -44,9 +44,9 @@ from torch.utils.cpp_extension import load
 
 if os.environ["RWKV_FLOAT_MODE"] == "bf16":
     wkv_cuda = load(name=f"wkv_{T_MAX}_bf16", sources=["cuda/wkv_op_bf16.cpp", "cuda/wkv_cuda_bf16.cu"], verbose=True, extra_cuda_cflags=[
-        "-t 4", 
+        # "-t 4", 
         "-std=c++17", 
-        "-res-usage", 
+        # "-res-usage", 
         # "--maxrregcount 60", 
         # "--use_fast_math", 
         "-ffast-math",
