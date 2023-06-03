@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
+#include <algorithm>
 #include "ATen/ATen.h"
 #define MIN_VALUE (-1e38)
 typedef at::BFloat16 bf16;
@@ -118,14 +119,14 @@ __global__ void kernel_backward(const int B, const int T, const int C,
 }
 
 void cuda_forward(int B, int T, int C, float *w, bf16 *u, bf16 *k, bf16 *v, bf16 *y) {
-    dim3 threadsPerBlock( min(C, 32) ); // requires --maxrregcount 60 for optimal performance
+    dim3 threadsPerBlock( std::min(C, 32) ); // requires --maxrregcount 60 for optimal performance
     assert(B * C % threadsPerBlock.x == 0);
     dim3 numBlocks(B * C / threadsPerBlock.x);
     kernel_forward<<<numBlocks, threadsPerBlock>>>(B, T, C, w, u, k, v, y);
 }
 
 void cuda_backward(int B, int T, int C, float *w, bf16 *u, bf16 *k, bf16 *v, bf16 *y, bf16 *gy, bf16 *gw, bf16 *gu, bf16 *gk, bf16 *gv) {
-    dim3 threadsPerBlock( min(C, 32) ); // requires --maxrregcount 60 for optimal performance
+    dim3 threadsPerBlock( std::min(C, 32) ); // requires --maxrregcount 60 for optimal performance
     assert(B * C % threadsPerBlock.x == 0);
     dim3 numBlocks(B * C / threadsPerBlock.x);
     kernel_backward<<<numBlocks, threadsPerBlock>>>(B, T, C, w, u, k, v, y, gy, gw, gu, gk, gv);
