@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #define MIN_VALUE (-1e38)
+float *Q_DEV=nullptr, *R_DEV=nullptr;
 
 template <typename F>
 __global__ void kernel_forward(const int B, const int T, const int C,
@@ -46,7 +47,7 @@ template <typename F>
 __global__ void kernel_backward(const int B, const int T, const int C,
                                 const F *__restrict__ const _w, const F *__restrict__ const _u, const F *__restrict__ const _k, const F *__restrict__ const _v,
                                 const F *__restrict__ const _y, const F *__restrict__ const _gy,
-                                F *__restrict__ const _gw, F *__restrict__ const _gu, F *__restrict__ const _gk, F *__restrict__ const _gv) {
+                                F *__restrict__ const _gw, F *__restrict__ const _gu, F *__restrict__ const _gk, F *__restrict__ const _gv, F *__restrict__ const q_base,F *__restrict__ const r_base) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const int _b = idx / C;
     const int _c = idx % C;
@@ -61,7 +62,9 @@ __global__ void kernel_backward(const int B, const int T, const int C,
     F *__restrict__ const gk = _gk + _offset;
     F *__restrict__ const gv = _gv + _offset;
 
-    F q[Tmax], r[Tmax];
+    // F q[Tmax], r[Tmax];
+    F *q = q_base + idx * T;
+    F *r = r_base + idx * T;
 
     F gw = 0, gu = 0, aa = 0, bb = 0, ga = 0, gb = 0, pp = MIN_VALUE;
     for (int i = 0; i < T; i++) {
@@ -123,6 +126,7 @@ void cuda_forward(int B, int T, int C, float *w, float *u, float *k, float *v, f
     dim3 threadsPerBlock( std::min(C, 32) ); // requires --maxrregcount 60 for optimal performance
     assert(B * C % threadsPerBlock.x == 0);
     dim3 numBlocks(B * C / threadsPerBlock.x);
+    // printf("forward, B:%d, C:%d, numBlocks.x:%d, threadsPerBlock.x:%d \r\n", B,C, (int)numBlocks.x, (int)threadsPerBlock.x);
     kernel_forward<<<numBlocks, threadsPerBlock>>>(B, T, C, w, u, k, v, y);
 }
 
@@ -130,5 +134,15 @@ void cuda_backward(int B, int T, int C, float *w, float *u, float *k, float *v, 
     dim3 threadsPerBlock( std::min(C, 32) ); // requires --maxrregcount 60 for optimal performance
     assert(B * C % threadsPerBlock.x == 0);
     dim3 numBlocks(B * C / threadsPerBlock.x);
-    kernel_backward<<<numBlocks, threadsPerBlock>>>(B, T, C, w, u, k, v, y, gy, gw, gu, gk, gv);
+
+    if (Q_DEV == nullptr)
+    {
+        cudaMalloc((void**)&Q_DEV, numBlocks.x * threadsPerBlock.x * T * sizeof(float));
+    }
+    if (R_DEV == nullptr)
+    {
+        cudaMalloc((void**)&R_DEV, numBlocks.x * threadsPerBlock.x * T * sizeof(float));
+    }
+    kernel_backward<<<numBlocks, threadsPerBlock>>>(B, T, C, w, u, k, v, y, gy, gw, gu, gk, gv, Q_DEV, R_DEV);
+
 }

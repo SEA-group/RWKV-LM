@@ -92,6 +92,7 @@ else:
         # "-res-usage", 
         # "--maxrregcount 60", 
         # "--use_fast_math", 
+        "-std=c++17", 
         "-ffast-math",
         "-O3", 
         "-Xptxas -O3", 
