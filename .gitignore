@@ -7,7 +7,7 @@
 wandb/
 data/
 vocab.json
-*.sh
+
 *log/
 test/
 tools/

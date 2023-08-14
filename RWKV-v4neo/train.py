@@ -114,12 +114,12 @@ if __name__ == "__main__":
     # activate retnet official model implementation 
     parser.add_argument("--use_retnet", default=False, action='store_true')
     parser.add_argument("--retnet_official_name", default='retnet_base', type=str)
-    # would be helpful if use more batches with fp16 training. 
-    parser.add_argument("--accumulate_grad_batches", default=1, type=int)
+
 
 
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
+    args.accumulate_grad_batches = 1
 
     ########################################################################################################
 
@@ -309,7 +309,7 @@ if __name__ == "__main__":
         from retnet.wrap_retnet import get_retnet_model
         rank_zero_info("USING RETNET WRAPPER")
         model = get_retnet_model(args)
-    elif args.precision=="fp16":
+    elif args.precision=="fp16" or args.precision==16:
         from src.model_fp16 import RWKV 
         rank_zero_info("\n\nNote: Loading fp16 modified model. Recommend to use with deepspeed_stage_2_offload\n\n")
         model = RWKV(args)
