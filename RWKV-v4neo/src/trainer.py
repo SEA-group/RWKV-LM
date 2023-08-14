@@ -5,13 +5,19 @@ import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_info, rank_zero_only
 
 def my_save(dd, ff):
-    if '14b-run1' not in ff:
-        torch.save(dd, ff)
-    else:
+    if '14b-run1' in ff:
         fn = ff.split('/')[-1]
         fff = '/dev/shm/' + fn
         torch.save(dd, fff)
         subprocess.Popen(f" aws s3 mv {fff} s3://rwkv-14b-4k/{fn} --quiet", shell=True)
+    elif ('world/14b' in ff) or ('world/7b' in ff):
+        aa = ff.split('/')[1]
+        fn = ff.split('/')[-1]
+        fff = f'/dev/shm/{aa}-{fn}'
+        torch.save(dd, fff)
+        subprocess.Popen(f" aws s3 mv {fff} s3://rwkv-world/{aa}-{fn} --quiet", shell=True)
+    else:
+        torch.save(dd, ff)
 
 class train_callback(pl.Callback):
     def __init__(self, args):
@@ -46,7 +52,35 @@ class train_callback(pl.Callback):
             # if trainer.is_global_zero:
             #     print(trainer.global_step, decay_step, decay_total, w_step, progress, lr)
 
+        if args.my_exit_tokens != 0: # cosine decay
+            if trainer.global_step < w_step:
+                lr = args.lr_init * (0.2 + 0.8 * trainer.global_step / w_step)
+            else:
+                real_tokens = real_step * args.ctx_len * args.real_bsz
+                warmup_tokens = w_step * args.ctx_len * args.real_bsz
+                progress = (real_tokens - warmup_tokens) / (abs(args.my_exit_tokens) - warmup_tokens)
+                progress = max(0, min(1, progress))
+                lr_final_factor = args.lr_final / args.lr_init                
+                lr_mult = (0.5 + lr_final_factor / 2) + (0.5 - lr_final_factor / 2) * math.cos(math.pi * progress)
+                if args.my_exit_tokens > 0:
+                    lr = args.lr_init * lr_mult
+                else:
+                    lr = (lr + args.lr_init * lr_mult) / 2
+                if progress >= 1:
+                    my_save(
+                        pl_module.state_dict(),
+                        f"{args.proj_dir}/rwkv-final.pth",
+                    )
+                    exit(0)
+
+        if args.weight_decay_final > 0:
+            wd_now = args.weight_decay * math.exp(math.log(args.weight_decay_final / args.weight_decay) * progress)
+        else:
+            wd_now = args.weight_decay
+
         for param_group in trainer.optimizers[0].param_groups:
+            if param_group["weight_decay"] > 0:
+                param_group["weight_decay"] = wd_now
             if args.layerwise_lr > 0:
                 param_group["lr"] = lr * param_group["my_lr_scale"]
                 # print(param_group["lr"], param_group["my_lr_scale"])
@@ -54,6 +88,7 @@ class train_callback(pl.Callback):
                 param_group["lr"] = lr
 
         trainer.my_lr = lr
+        trainer.my_wd = wd_now
         # rank_zero_info(f"{real_step} {lr}")
 
         if trainer.global_step == 0:
@@ -103,7 +138,7 @@ class train_callback(pl.Callback):
             # self.log("s", real_step, prog_bar=True, on_step=True)
 
             if len(args.wandb) > 0:
-                lll = {"loss": trainer.my_loss, "lr": trainer.my_lr, "Gtokens": real_step * token_per_step / 1e9}
+                lll = {"loss": trainer.my_loss, "lr": trainer.my_lr, "wd": trainer.my_wd, "Gtokens": real_step * token_per_step / 1e9}
                 if kt_s > 0:
                     lll["kt/s"] = kt_s
                 trainer.my_wandb.log(lll, step=int(real_step))
@@ -163,7 +198,11 @@ def generate_init_weight(model, init_weight_name):
             print(f"Combine weights from {model.args.load_model}...")
             load_dict = torch.load(model.args.load_model, map_location="cpu")
             for k in load_dict:
-                assert k in mm
+                try:
+                    assert k in mm
+                except:
+                    print('missing', k)
+                    exit(0)
                 src = load_dict[k]
                 try:
                     mm[k] = src.reshape(mm[k].shape)

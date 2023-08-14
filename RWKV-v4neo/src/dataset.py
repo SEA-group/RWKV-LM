@@ -23,7 +23,7 @@ class MyDataset(Dataset):
                 self.data = MMapIndexedDataset(args.data_file)
                 self.data_size = len(self.data._bin_buffer) // self.data._index._dtype_size
                 rank_zero_info(f"Data has {self.data_size} tokens.")
-            else:
+            elif args.my_pile_version == 2:
                 data_list = open(args.data_file, "r", encoding='utf-8').read().strip().split('\n')
                 data_list = [i.strip().split(' ') for i in data_list]
                 self.data = []
@@ -57,13 +57,13 @@ class MyDataset(Dataset):
         elif args.data_type == "numpy":
             self.data = np.load(args.data_file).astype("int")
             self.vocab_size = args.vocab_size
-            rank_zero_info("Current vocab size =", self.vocab_size, "(make sure it's correct)")
+            rank_zero_info(f"Current vocab size = {self.vocab_size} (make sure it's correct)")
             self.data_size = len(self.data)
             rank_zero_info(f"Data has {self.data_size} tokens.")
         elif args.data_type == "uint16":
             self.data = np.fromfile(args.data_file, dtype=np.uint16).astype("int32").reshape(-1, args.my_sample_len)
             self.vocab_size = args.vocab_size
-            rank_zero_info("Current vocab size =", self.vocab_size, "(make sure it's correct)")
+            rank_zero_info(f"Current vocab size = {self.vocab_size} (make sure it's correct)")
             self.data_size = self.data.shape[0]
             rank_zero_info(f"Data has {self.data_size} samples.")
         elif args.data_type == "wds_img":
