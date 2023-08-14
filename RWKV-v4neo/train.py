@@ -114,7 +114,13 @@ if __name__ == "__main__":
     parser.add_argument("--my_random_steps", default=0, type=int)
     parser.add_argument("--my_testing", default='', type=str)
     parser.add_argument("--my_exit", default=99999999, type=int)
-    parser.add_argument("--my_exit_tokens", default=0, type=int)
+    parser.add_argument("--my_exit_tokens", default=-1, type=int)
+    # activate retnet official model implementation 
+    parser.add_argument("--use_retnet", default=False, action='store_true')
+    parser.add_argument("--retnet_official_name", default='retnet_base', type=str)
+    # would be helpful if use more batches with fp16 training. 
+    parser.add_argument("--accumulate_grad_batches", default=1, type=int)
+
 
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
@@ -156,8 +162,9 @@ if __name__ == "__main__":
         args.dim_att = args.n_embd
     if args.dim_ffn <= 0:
         args.dim_ffn = args.n_embd * 4
-
-    if args.data_type == "wds_img":
+    if args.use_retnet:
+        args.run_name = f"{args.vocab_size} ctx{args.ctx_len} arch-{args.retnet_official_name}"
+    elif args.data_type == "wds_img":
         args.run_name = f"v{args.my_img_version}-{args.my_img_size}-{args.my_img_bit}bit-{args.my_img_clip}x{args.my_img_clip_scale}"
         args.proj_dir = f"{args.proj_dir}-{args.run_name}"
     else:
@@ -301,12 +308,25 @@ if __name__ == "__main__":
     train_data = MyDataset(args)
     args.vocab_size = train_data.vocab_size
 
-    if args.data_type == 'wds_img':
-        from src.model_img import RWKV_IMG
-        model = RWKV_IMG(args)
-    else:
-        from src.model import RWKV
+    if args.use_retnet:
+        from retnet.wrap_retnet import get_retnet_model
+        rank_zero_info("USING RETNET WRAPPER")
+        model = get_retnet_model(args)
+    elif args.precision=="fp16":
+        from src.model_fp16 import RWKV 
+        rank_zero_info("\n\nNote: Loading fp16 modified model. Recommend to use with deepspeed_stage_2_offload\n\n")
         model = RWKV(args)
+    else:
+        if args.data_type == 'wds_img':
+            from src.model_img import RWKV_IMG
+            model = RWKV_IMG(args)
+        else:
+            if args.dropout > 0:
+                from src.model_drop2 import RWKV
+                model = RWKV(args)
+            else:
+                from src.model import RWKV
+                model = RWKV(args)
 
     if len(args.load_model) == 0 or args.my_pile_stage == 1:  # shall we build the initial weights?
         init_weight_name = f"{args.proj_dir}/rwkv-init.pth"
