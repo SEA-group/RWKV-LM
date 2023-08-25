@@ -122,8 +122,10 @@ if __name__ == "__main__":
     parser.add_argument("--accumulate_grad_batches", default=1, type=int)
 
 
+
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
+    args.accumulate_grad_batches = 1
 
     ########################################################################################################
 
@@ -279,6 +281,7 @@ if __name__ == "__main__":
             rank_zero_info("\n\nNote: you are using fp32 (very slow). Try bf16 / tf32 for faster training.\n\n")
     if args.precision == "fp16":
         rank_zero_info("\n\nNote: you are using fp16 (might overflow). Try bf16 / tf32 for stable training.\n\n")
+        
 
     os.environ["RWKV_JIT_ON"] = "1"
     if "deepspeed_stage_3" in args.strategy:
@@ -312,7 +315,7 @@ if __name__ == "__main__":
         from retnet.wrap_retnet import get_retnet_model
         rank_zero_info("USING RETNET WRAPPER")
         model = get_retnet_model(args)
-    elif args.precision=="fp16":
+    elif args.precision=="fp16" or args.precision==16:
         from src.model_fp16 import RWKV 
         rank_zero_info("\n\nNote: Loading fp16 modified model. Recommend to use with deepspeed_stage_2_offload\n\n")
         model = RWKV(args)
