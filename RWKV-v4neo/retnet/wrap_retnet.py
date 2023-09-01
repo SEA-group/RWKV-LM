@@ -45,6 +45,7 @@ class Wrapper_RetNetConfig(RetNetConfig):
         '''
         for hp in vars(rwkv_args):
             setattr(self, hp, getattr(rwkv_args, hp))
+        self.update_related_param()
 
 class Wrapper_RetNet(pl.LightningModule):
     def __init__(self, args):

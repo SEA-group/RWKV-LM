@@ -1,6 +1,7 @@
 # Copyright (c) 2022 Microsoft
 # Licensed under The MIT License [see LICENSE for details]
 
+
 # Just copy from https://github.com/microsoft/torchscale for experimental usage
 class RetNetConfig(object):
     def __init__(self, **kwargs):
@@ -50,6 +51,9 @@ class RetNetConfig(object):
         self.xpos_rel_pos = kwargs.pop("xpos_rel_pos", False)
         self.xpos_scale_base = kwargs.pop("xpos_scale_base", 512)
 
+        self.update_related_param()
+
+    def update_related_param(self):
         if self.deepnorm:
             self.decoder_normalize_before = False
             self.subln = False

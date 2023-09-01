@@ -3,6 +3,11 @@
 This is the experimental branch for people want to use fp 16 to train some world serial models.
 For easy usage, I just copy data preprocessor from https://github.com/SynthiaDL/TrainChatGalRWKV/
 
+# Note
+
+[] Check Retnet CUDA illegal memory error with some shape config
+[] Apply deepspeed checkpoint to retnet
+[] Better bf-fp16 training in rwkv4
 
 ## RWKV: Parallelizable RNN with Transformer-level LLM Performance (pronounced as "RwaKuv", from 4 major params: R W K V)
 
