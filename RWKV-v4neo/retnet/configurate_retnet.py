@@ -41,7 +41,7 @@ def retnet_base_architecture(args):
         args, "decoder_output_dim", args.decoder_embed_dim
     )
     args.decoder_input_dim = getattr(args, "decoder_input_dim", args.decoder_embed_dim)
-    
+
     args.chunkwise_recurrent = getattr(args, "chunkwise_recurrent", False)
     args.recurrent_chunk_size = getattr(args, "recurrent_chunk_size", 512)
 
@@ -63,19 +63,22 @@ def retnet_base_architecture(args):
     if args.offload_activations:
         args.checkpoint_activations = True
 
+
 def retnet_medium(args):
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 1024)
     args.decoder_ffn_embed_dim = getattr(args, "decoder_ffn_embed_dim", 2048)
     args.decoder_layers = getattr(args, "decoder_layers", 16)
     args.decoder_retention_heads = getattr(args, "decoder_retention_heads", 4)
     retnet_base_architecture(args)
-    
+
+
 def retnet_xl(args):
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 2048)
     args.decoder_ffn_embed_dim = getattr(args, "decoder_ffn_embed_dim", 4096)
     args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 8)
     args.decoder_layers = getattr(args, "decoder_layers", 24)
     retnet_base_architecture(args)
+
 
 def retnet_3b(args):
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 2560)
@@ -84,12 +87,14 @@ def retnet_3b(args):
     args.decoder_layers = getattr(args, "decoder_layers", 32)
     retnet_base_architecture(args)
 
+
 def retnet_7b(args):
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 4096)
     args.decoder_ffn_embed_dim = getattr(args, "decoder_ffn_embed_dim", 8192)
     args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 16)
     args.decoder_layers = getattr(args, "decoder_layers", 32)
     retnet_base_architecture(args)
+
 
 def retnet_13b(args):
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 5120)
@@ -98,10 +103,10 @@ def retnet_13b(args):
     args.decoder_layers = getattr(args, "decoder_layers", 40)
     retnet_base_architecture(args)
 
+
 def retnet_65b(args):
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 8192)
     args.decoder_ffn_embed_dim = getattr(args, "decoder_ffn_embed_dim", 16384)
     args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 32)
     args.decoder_layers = getattr(args, "decoder_layers", 64)
     retnet_base_architecture(args)
-    

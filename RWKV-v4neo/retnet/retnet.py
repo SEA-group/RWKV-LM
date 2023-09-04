@@ -17,22 +17,31 @@ from torchscale.component.feedforward_network import FeedForwardNetwork, make_ex
 from torchscale.component.multiscale_retention import MultiScaleRetention
 from torchscale.component.xmoe.moe_layer import MOELayer
 from torchscale.component.xmoe.routing import Top1Gate, Top2Gate
+
 try:
     from apex.normalization import FusedLayerNorm as LayerNorm
 except ModuleNotFoundError:
     from torch.nn import LayerNorm
-    
-    
+
+
 class RetNetRelPos(nn.Module):
     def __init__(self, args):
         super().__init__()
-        angle = 1.0 / (10000 ** torch.linspace(0, 1, args.decoder_embed_dim // args.decoder_retention_heads // 2))
+        angle = 1.0 / (
+            10000
+            ** torch.linspace(
+                0, 1, args.decoder_embed_dim // args.decoder_retention_heads // 2
+            )
+        )
         angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
-        decay = torch.log(1 - 2 ** (-5 - torch.arange(args.decoder_retention_heads, dtype=torch.float)))
+        decay = torch.log(
+            1
+            - 2 ** (-5 - torch.arange(args.decoder_retention_heads, dtype=torch.float))
+        )
         self.register_buffer("angle", angle)
         self.register_buffer("decay", decay)
         self.recurrent_chunk_size = args.recurrent_chunk_size
-        
+
     def forward(self, slen, activate_recurrent=False, chunkwise_recurrent=False):
         if activate_recurrent:
             sin = torch.sin(self.angle * (slen - 1))
@@ -44,8 +53,14 @@ class RetNetRelPos(nn.Module):
             cos = torch.cos(index[:, None] * self.angle[None, :])
 
             block_index = torch.arange(self.recurrent_chunk_size).to(self.decay)
-            mask = torch.tril(torch.ones(self.recurrent_chunk_size, self.recurrent_chunk_size).to(self.decay))
-            mask = torch.masked_fill(block_index[:, None] - block_index[None, :], ~mask.bool(), float("inf"))
+            mask = torch.tril(
+                torch.ones(self.recurrent_chunk_size, self.recurrent_chunk_size).to(
+                    self.decay
+                )
+            )
+            mask = torch.masked_fill(
+                block_index[:, None] - block_index[None, :], ~mask.bool(), float("inf")
+            )
             mask = torch.exp(mask * self.decay[:, None, None])
             mask = torch.nan_to_num(mask)
             scale = mask.sum(dim=-1, keepdim=True).sqrt()
@@ -61,13 +76,16 @@ class RetNetRelPos(nn.Module):
             sin = torch.sin(index[:, None] * self.angle[None, :])
             cos = torch.cos(index[:, None] * self.angle[None, :])
             mask = torch.tril(torch.ones(slen, slen).to(self.decay))
-            mask = torch.masked_fill(index[:, None] - index[None, :], ~mask.bool(), float("inf"))
+            mask = torch.masked_fill(
+                index[:, None] - index[None, :], ~mask.bool(), float("inf")
+            )
             mask = torch.exp(mask * self.decay[:, None, None])
             mask = torch.nan_to_num(mask)
             mask = mask / mask.sum(dim=-1, keepdim=True).sqrt()
             retention_rel_pos = ((sin, cos), mask)
 
         return retention_rel_pos
+
 
 class DecoderLayer(nn.Module):
     def __init__(
@@ -199,13 +217,7 @@ class DecoderLayer(nn.Module):
 
 
 class RetNetDecoder(nn.Module):
-    def __init__(
-        self,
-        args,
-        embed_tokens=None,
-        output_projection=None,
-        **kwargs
-    ):
+    def __init__(self, args, embed_tokens=None, output_projection=None, **kwargs):
         super().__init__(**kwargs)
         self.args = args
 
@@ -254,7 +266,6 @@ class RetNetDecoder(nn.Module):
         self.retnet_rel_pos = RetNetRelPos(args)
         self.chunkwise_recurrent = args.chunkwise_recurrent
         self.recurrent_chunk_size = args.recurrent_chunk_size
-        
 
         if args.deepnorm:
             init_scale = math.pow(8.0 * args.decoder_layers, 0.25)
@@ -298,9 +309,7 @@ class RetNetDecoder(nn.Module):
             )
         return output_projection
 
-    def build_decoder_layer(
-        self, args, depth, is_moe_layer=False
-    ):
+    def build_decoder_layer(self, args, depth, is_moe_layer=False):
         layer = DecoderLayer(
             args,
             depth,
@@ -353,15 +362,24 @@ class RetNetDecoder(nn.Module):
         )
         is_first_step = self.is_first_step(incremental_state)
 
-        
-        if self.chunkwise_recurrent and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0:
-            padding_len = self.recurrent_chunk_size - prev_output_tokens.size(1) % self.recurrent_chunk_size
+        if (
+            self.chunkwise_recurrent
+            and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0
+        ):
+            padding_len = (
+                self.recurrent_chunk_size
+                - prev_output_tokens.size(1) % self.recurrent_chunk_size
+            )
             slen = prev_output_tokens.size(1) + padding_len
             x = F.pad(x, (0, 0, 0, padding_len))
         else:
             slen = prev_output_tokens.size(1)
         # relative position
-        retention_rel_pos = self.retnet_rel_pos(slen, incremental_state is not None and not is_first_step, chunkwise_recurrent=self.chunkwise_recurrent)
+        retention_rel_pos = self.retnet_rel_pos(
+            slen,
+            incremental_state is not None and not is_first_step,
+            chunkwise_recurrent=self.chunkwise_recurrent,
+        )
 
         # decoder layers
         inner_states = [x]
@@ -385,9 +403,12 @@ class RetNetDecoder(nn.Module):
             )
             l_aux.append(l_aux_i)
             inner_states.append(x)
-            
-        if self.chunkwise_recurrent and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0:
-            x = x[:, :prev_output_tokens.size(1), :]
+
+        if (
+            self.chunkwise_recurrent
+            and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0
+        ):
+            x = x[:, : prev_output_tokens.size(1), :]
 
         if self.layer_norm is not None:
             x = self.layer_norm(x)
