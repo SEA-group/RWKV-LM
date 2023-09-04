@@ -155,7 +155,10 @@ if __name__ == "__main__":
     if args.dim_att <= 0:
         args.dim_att = args.n_embd
     if args.dim_ffn <= 0:
-        args.dim_ffn = args.n_embd * 4
+        if 'r3' in args.my_testing:
+            args.dim_ffn = int((args.n_embd * 3.5) // 32 * 32)
+        else:
+            args.dim_ffn = args.n_embd * 4
 
     if args.data_type == "wds_img":
         args.run_name = f"v{args.my_img_version}-{args.my_img_size}-{args.my_img_bit}bit-{args.my_img_clip}x{args.my_img_clip_scale}"
@@ -253,7 +256,7 @@ if __name__ == "__main__":
 #
 # Found torch {torch.__version__}, recommend 1.13.1+cu117 or newer
 # Found deepspeed {deepspeed_version}, recommend 0.7.0 (faster than newer versions)
-# Found pytorch_lightning {pl.__version__}, recommend 1.9.1 or newer
+# Found pytorch_lightning {pl.__version__}, recommend 1.9.5
 #
 ############################################################################
 """
@@ -316,6 +319,11 @@ if __name__ == "__main__":
     rank_zero_info(f"########## Loading {args.load_model}... ##########")
     try:
         load_dict = torch.load(args.load_model, map_location="cpu")
+        load_keys = list(load_dict.keys())
+        for k in load_keys:
+            if k.startswith('_forward_module.'):
+                load_dict[k.replace('_forward_module.','')] = load_dict[k]
+                del load_dict[k]
     except:
         rank_zero_info(f"Bad checkpoint {args.load_model}")
         if args.my_pile_stage >= 2:  # try again using another checkpoint

@@ -141,15 +141,14 @@ class RWKV_TimeMix_RWKV5_Preview(MyModule):
         super().__init__()
         self.args = args
         self.layer_id = layer_id
-        self.ctx_len = args.ctx_len
-        self.n_embd = args.n_embd
 
         self.head_size = 64
-        self.n_head = self.n_embd // self.head_size
-        assert self.n_embd % self.n_head == 0
+        self.n_head = args.dim_att // self.head_size
+        assert args.dim_att % self.n_head == 0
+        self.head_size_divisor = 8
 
         self.chunk_len = 512
-        assert self.ctx_len % self.chunk_len == 0
+        assert args.ctx_len % self.chunk_len == 0
 
         with torch.no_grad():
             ratio_0_to_1 = layer_id / (args.n_layer - 1)  # 0 to 1
@@ -162,6 +161,10 @@ class RWKV_TimeMix_RWKV5_Preview(MyModule):
             self.time_mix_k = nn.Parameter(torch.pow(ddd, ratio_1_to_almost0))
             self.time_mix_v = nn.Parameter(torch.pow(ddd, ratio_1_to_almost0) + 0.3 * ratio_0_to_1)
             self.time_mix_r = nn.Parameter(torch.pow(ddd, 0.5 * ratio_1_to_almost0))
+
+            if 'r3' in os.environ["RWKV_MY_TESTING"]:
+                self.time_mix_g = nn.Parameter(torch.pow(ddd, 0.5 * ratio_1_to_almost0))
+                self.gate = nn.Linear(args.n_embd, args.dim_att, bias=False)
 
             # fancy time_decay
             decay_speed = torch.ones(self.n_head)
@@ -181,53 +184,91 @@ class RWKV_TimeMix_RWKV5_Preview(MyModule):
         self.value = nn.Linear(args.n_embd, args.dim_att, bias=False)
         self.output = nn.Linear(args.dim_att, args.n_embd, bias=False)
 
-        self.ln_x = nn.GroupNorm(self.n_head, self.n_embd)
+        self.ln_x = nn.GroupNorm(self.n_head, args.dim_att)
 
-    @MyFunction
-    def jit_func(self, x):
-        B, TT, C = x.size()
+    if 'r3' in os.environ["RWKV_MY_TESTING"]:
+        @MyFunction
+        def jit_func(self, x):
+            B, TT, C = x.size()
 
-        xx = self.time_shift(x) # Mix x with the previous timestep to produce xk, xv, xr
-        xk = x * self.time_mix_k + xx * (1 - self.time_mix_k)
-        xv = x * self.time_mix_v + xx * (1 - self.time_mix_v)
-        xr = x * self.time_mix_r + xx * (1 - self.time_mix_r)
+            xx = self.time_shift(x) # Mix x with the previous timestep to produce xk, xv, xr
+            xk = x * self.time_mix_k + xx * (1 - self.time_mix_k)
+            xv = x * self.time_mix_v + xx * (1 - self.time_mix_v)
+            xr = x * self.time_mix_r + xx * (1 - self.time_mix_r)
+            xg = x * self.time_mix_g + xx * (1 - self.time_mix_g)
 
-        r = self.receptance(xr).view(B, TT, self.n_head, self.head_size).transpose(1, 2)            # BTC -> BHTS
-        k = self.key(xk).view(B, TT, self.n_head, self.head_size).transpose(1, 2).transpose(-2, -1) # BTC -> BHTS -> BHST
-        v = self.value(xv).view(B, TT, self.n_head, self.head_size).transpose(1, 2)                 # BTC -> BHTS
+            r = self.receptance(xr).view(B, TT, self.n_head, self.head_size).transpose(1, 2)            # BTC -> BHTS
+            k = self.key(xk).view(B, TT, self.n_head, self.head_size).transpose(1, 2).transpose(-2, -1) # BTC -> BHTS -> BHST
+            v = self.value(xv).view(B, TT, self.n_head, -1).transpose(1, 2)                 # BTC -> BHTS
+            g = F.silu(self.gate(xg))
 
-        return r, k, v
+            return r, k, v, g
 
-    @MyFunction
-    def jit_func_2(self, r, k, v, w, wk, wb, ws):
-        B, H, TT, S = r.size()
-        T = self.chunk_len
+        @MyFunction
+        def jit_func_2(self, r, k, v, g, w, wk, wb, ws):
+            B, H, TT, S = r.size()
+            T = self.chunk_len
 
-        s = torch.zeros(B, H, S, S, device=r.device, dtype=r.dtype)  # state
-        x = torch.zeros(B, H, TT, S, device=r.device, dtype=r.dtype) # output
+            s = torch.zeros(B, H, S, S, device=r.device, dtype=r.dtype)  # state
+            x = torch.zeros(B, H, TT, S, device=r.device, dtype=r.dtype) # output
 
-################################################################################
-########
-        for i in range(TT // T):
-            rr = r[:, :, i*T:i*T+T, :]
-            kk = k[:, :, :, i*T:i*T+T]
-            vv = v[:, :, i*T:i*T+T, :]
+            for i in range(TT // T):
+                rr = r[:, :, i*T:i*T+T, :]
+                kk = k[:, :, :, i*T:i*T+T]
+                vv = v[:, :, i*T:i*T+T, :]
 
-            x[:, :, i*T:i*T+T, :] = ((rr @ kk) * w) @ vv  +  (rr @ s) * wb
+                x[:, :, i*T:i*T+T, :] = ((rr @ kk) * w) @ vv  +  (rr @ s) * wb
 
-            s = ws * s + (kk * wk) @ vv
-########
-################################################################################
-        
-        x = x.transpose(1, 2).contiguous().view(B * TT, H*S) # BHTS -> BTHS -> BTC
-        x = self.ln_x(x).view(B, TT, H*S)
-        return self.output(x)
+                s = ws * s + (kk * wk) @ vv
+            
+            x = x.transpose(1, 2).contiguous().view(B * TT, H*S) # BHTS -> BTHS -> BTC
+            x = self.ln_x(x / self.head_size_divisor).view(B, TT, H*S) * g
+            return self.output(x)
+    else:
+        @MyFunction
+        def jit_func(self, x):
+            B, TT, C = x.size()
+
+            xx = self.time_shift(x) # Mix x with the previous timestep to produce xk, xv, xr
+            xk = x * self.time_mix_k + xx * (1 - self.time_mix_k)
+            xv = x * self.time_mix_v + xx * (1 - self.time_mix_v)
+            xr = x * self.time_mix_r + xx * (1 - self.time_mix_r)
+
+            r = self.receptance(xr).view(B, TT, self.n_head, self.head_size).transpose(1, 2)            # BTC -> BHTS
+            k = self.key(xk).view(B, TT, self.n_head, self.head_size).transpose(1, 2).transpose(-2, -1) # BTC -> BHTS -> BHST
+            v = self.value(xv).view(B, TT, self.n_head, self.head_size).transpose(1, 2)                 # BTC -> BHTS
+
+            return r, k, v
+
+        @MyFunction
+        def jit_func_2(self, r, k, v, w, wk, wb, ws):
+            B, H, TT, S = r.size()
+            T = self.chunk_len
+
+            s = torch.zeros(B, H, S, S, device=r.device, dtype=r.dtype)  # state
+            x = torch.zeros(B, H, TT, S, device=r.device, dtype=r.dtype) # output
+
+            for i in range(TT // T):
+                rr = r[:, :, i*T:i*T+T, :]
+                kk = k[:, :, :, i*T:i*T+T]
+                vv = v[:, :, i*T:i*T+T, :]
+
+                x[:, :, i*T:i*T+T, :] = ((rr @ kk) * w) @ vv  +  (rr @ s) * wb
+
+                s = ws * s + (kk * wk) @ vv
+            
+            x = x.transpose(1, 2).contiguous().view(B * TT, H*S) # BHTS -> BTHS -> BTC
+            x = self.ln_x(x / self.head_size_divisor).view(B, TT, H*S)
+            return self.output(x)
     
     def forward(self, x):
         H = self.n_head
         T = self.chunk_len
 
-        r, k, v = self.jit_func(x)
+        if 'r3' in os.environ["RWKV_MY_TESTING"]:
+            r, k, v, g = self.jit_func(x)
+        else:
+            r, k, v = self.jit_func(x)
 
         w = torch.exp(-torch.exp(self.time_decay.float())).unsqueeze(-1)
         
@@ -258,7 +299,10 @@ class RWKV_TimeMix_RWKV5_Preview(MyModule):
         wk = wk.to(dtype=r.dtype)
         wb = wb.to(dtype=r.dtype)
         ws = ws.to(dtype=r.dtype)
-        return self.jit_func_2(r, k, v, w, wk, wb, ws)
+        if 'r3' in os.environ["RWKV_MY_TESTING"]:
+            return self.jit_func_2(r, k, v, g, w, wk, wb, ws)
+        else:
+            return self.jit_func_2(r, k, v, w, wk, wb, ws)        
 
 ########################################################################################################
 # RWKV: RWKV Time-mix + RWKV Channel-mix
@@ -394,7 +438,7 @@ class RWKV_ChannelMix(MyModule):
         xk = x * self.time_mix_k + xx * (1 - self.time_mix_k)
         xr = x * self.time_mix_r + xx * (1 - self.time_mix_r)
         k = self.key(xk)
-        k = torch.square(torch.relu(k))
+        k = torch.relu(k) ** 2
         kv = self.value(k)
         return torch.sigmoid(self.receptance(xr)) * kv
 
@@ -532,6 +576,9 @@ class RWKV(pl.LightningModule):
             args.tiny_att_layer = -1
         if not hasattr(args, 'tiny_att_dim'):
             args.tiny_att_dim = -1
+        assert args.n_embd % 32 == 0
+        assert args.dim_att % 32 == 0
+        assert args.dim_ffn % 32 == 0
 
         self.emb = nn.Embedding(args.vocab_size, args.n_embd)
 
@@ -567,9 +614,9 @@ class RWKV(pl.LightningModule):
                     lr_2x.add(n)
             elif ("time_faaaa" in n) and (args.layerwise_lr > 0):
                 if args.my_pile_stage == 2:
-                    lr_3x.add(n)
-                else:
                     lr_2x.add(n)
+                else:
+                    lr_1x.add(n)
             elif ("time_first" in n) and (args.layerwise_lr > 0):
                 lr_3x.add(n)
             elif (len(p.squeeze().shape) >= 2) and (args.weight_decay > 0):
@@ -732,7 +779,7 @@ class RWKV(pl.LightningModule):
             if "ln_" in n or ".ln" in n or "time_" in n or "_mask" in n or "pos_emb" in n or '.mask.' in n:
                 if 'ln_x.weight' in n:
                     layer_scale = (1+int(n.split('.')[1])) / self.args.n_layer
-                    m[n] = (p * 0.0) + (layer_scale ** 0.5)
+                    m[n] = (p * 0.0) + (layer_scale ** 0.7)
                 else:
                     m[n] = p
             else:
