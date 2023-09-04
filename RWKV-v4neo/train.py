@@ -114,15 +114,10 @@ if __name__ == "__main__":
     parser.add_argument("--my_random_steps", default=0, type=int)
     parser.add_argument("--my_testing", default='', type=str)
     parser.add_argument("--my_exit", default=99999999, type=int)
-    parser.add_argument("--my_exit_tokens", default=-1, type=int)
-    # activate retnet official model implementation 
-    parser.add_argument("--use_retnet", default=False, action='store_true')
-    parser.add_argument("--retnet_official_name", default='retnet_base', type=str)
-
+    parser.add_argument("--my_exit_tokens", default=0, type=int)
 
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
-    args.accumulate_grad_batches = 1
 
     ########################################################################################################
 
@@ -147,11 +142,11 @@ if __name__ == "__main__":
     args.my_timestamp = datetime.datetime.today().strftime("%Y-%m-%d-%H-%M-%S")
     args.enable_checkpointing = False
     args.replace_sampler_ddp = False
-    args.logger = True
+    args.logger = False
     args.gradient_clip_val = 1.0
     args.num_sanity_val_steps = 0
     args.check_val_every_n_epoch = int(1e20)
-    args.log_every_n_steps = int(1e2)
+    args.log_every_n_steps = int(1e20)
     args.max_epochs = -1  # continue forever
     args.betas = (args.beta1, args.beta2)
     args.real_bsz = int(args.num_nodes) * int(args.devices) * args.micro_bsz
@@ -160,10 +155,12 @@ if __name__ == "__main__":
     if args.dim_att <= 0:
         args.dim_att = args.n_embd
     if args.dim_ffn <= 0:
-        args.dim_ffn = args.n_embd * 4
-    if args.use_retnet:
-        args.run_name = f"{args.vocab_size} ctx{args.ctx_len} arch-{args.retnet_official_name}"
-    elif args.data_type == "wds_img":
+        if 'r3' in args.my_testing:
+            args.dim_ffn = int((args.n_embd * 3.5) // 32 * 32)
+        else:
+            args.dim_ffn = args.n_embd * 4
+
+    if args.data_type == "wds_img":
         args.run_name = f"v{args.my_img_version}-{args.my_img_size}-{args.my_img_bit}bit-{args.my_img_clip}x{args.my_img_clip_scale}"
         args.proj_dir = f"{args.proj_dir}-{args.run_name}"
     else:
@@ -259,7 +256,7 @@ if __name__ == "__main__":
 #
 # Found torch {torch.__version__}, recommend 1.13.1+cu117 or newer
 # Found deepspeed {deepspeed_version}, recommend 0.7.0 (faster than newer versions)
-# Found pytorch_lightning {pl.__version__}, recommend 1.9.1 or newer
+# Found pytorch_lightning {pl.__version__}, recommend 1.9.5
 #
 ############################################################################
 """
@@ -278,7 +275,6 @@ if __name__ == "__main__":
             rank_zero_info("\n\nNote: you are using fp32 (very slow). Try bf16 / tf32 for faster training.\n\n")
     if args.precision == "fp16":
         rank_zero_info("\n\nNote: you are using fp16 (might overflow). Try bf16 / tf32 for stable training.\n\n")
-        
 
     os.environ["RWKV_JIT_ON"] = "1"
     if "deepspeed_stage_3" in args.strategy:
@@ -308,25 +304,12 @@ if __name__ == "__main__":
     train_data = MyDataset(args)
     args.vocab_size = train_data.vocab_size
 
-    if args.use_retnet:
-        from retnet.wrap_retnet import get_retnet_model
-        rank_zero_info("USING RETNET WRAPPER")
-        model = get_retnet_model(args)
-    elif args.precision=="fp16" or args.precision==16:
-        from src.model_fp16 import RWKV 
-        rank_zero_info("\n\nNote: Loading fp16 modified model. Recommend to use with deepspeed_stage_2_offload\n\n")
-        model = RWKV(args)
+    if args.data_type == 'wds_img':
+        from src.model_img import RWKV_IMG
+        model = RWKV_IMG(args)
     else:
-        if args.data_type == 'wds_img':
-            from src.model_img import RWKV_IMG
-            model = RWKV_IMG(args)
-        else:
-            if args.dropout > 0:
-                from src.model_drop2 import RWKV
-                model = RWKV(args)
-            else:
-                from src.model import RWKV
-                model = RWKV(args)
+        from src.model import RWKV
+        model = RWKV(args)
 
     if len(args.load_model) == 0 or args.my_pile_stage == 1:  # shall we build the initial weights?
         init_weight_name = f"{args.proj_dir}/rwkv-init.pth"
@@ -336,6 +319,11 @@ if __name__ == "__main__":
     rank_zero_info(f"########## Loading {args.load_model}... ##########")
     try:
         load_dict = torch.load(args.load_model, map_location="cpu")
+        load_keys = list(load_dict.keys())
+        for k in load_keys:
+            if k.startswith('_forward_module.'):
+                load_dict[k.replace('_forward_module.','')] = load_dict[k]
+                del load_dict[k]
     except:
         rank_zero_info(f"Bad checkpoint {args.load_model}")
         if args.my_pile_stage >= 2:  # try again using another checkpoint
